@@ -1,0 +1,14 @@
+# Duff - Raspberry Pi + L298N Rover Board
+#
+# Minimal Linux board for driving 2 brushed DC motors via L298N H-bridge.
+# No onboard sensors — connect an external IMU/compass/baro hat or use
+# headless mode for basic RC control.
+
+env TOOLCHAIN native
+
+# Use the generic Raspberry Pi Linux HAL subtype so the matching
+# RCOutput/GPIO/utility implementations are linked together.
+define CONFIG_HAL_BOARD_SUBTYPE HAL_BOARD_SUBTYPE_LINUX_RPI
+
+# GPIO
+define HAL_LINUX_GPIO_RPI_ENABLED 1
