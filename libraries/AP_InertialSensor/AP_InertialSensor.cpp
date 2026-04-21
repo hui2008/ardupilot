@@ -869,7 +869,7 @@ void AP_InertialSensor::_start_backends()
         _backends[i]->start();
     }
 
-#if AP_INERTIALSENSOR_ALLOW_NO_SENSORS
+#if !AP_INERTIALSENSOR_ALLOW_NO_SENSORS
     if (_gyro_count == 0 || _accel_count == 0) {
         AP_HAL::panic("INS needs at least 1 gyro and 1 accel");
     }
@@ -1309,9 +1309,9 @@ AP_InertialSensor::detect_backends(void)
         #if CONFIG_HAL_BOARD == HAL_BOARD_ESP32
         ADD_BACKEND(AP_InertialSensor_NONE::detect(*this, INS_NONE_SENSOR_A));
         #else
+        #if !AP_INERTIALSENSOR_ALLOW_NO_SENSORS
         DEV_PRINTF("INS: unable to initialise driver\n");
         GCS_SEND_TEXT(MAV_SEVERITY_DEBUG, "INS: unable to initialise driver");
-        #if !AP_INERTIALSENSOR_ALLOW_NO_SENSORS
         AP_BoardConfig::config_error("INS: unable to initialise driver");
         #endif
         #endif

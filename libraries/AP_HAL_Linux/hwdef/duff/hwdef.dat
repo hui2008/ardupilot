@@ -12,3 +12,8 @@ define CONFIG_HAL_BOARD_SUBTYPE HAL_BOARD_SUBTYPE_LINUX_RPI
 
 # GPIO
 define HAL_LINUX_GPIO_RPI_ENABLED 1
+
+# Duff can be brought up as a bare Pi without onboard sensors.
+# This allows the binary to start for GCS setup and external-sensor bring-up.
+define HAL_BARO_ALLOW_INIT_NO_BARO 1
+define AP_INERTIALSENSOR_ALLOW_NO_SENSORS 1
