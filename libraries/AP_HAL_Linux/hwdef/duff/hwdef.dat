@@ -1,0 +1,7 @@
+# hwdef for generic Linux configuration option, eg. running on your laptop
+
+env TOOLCHAIN native
+
+define CONFIG_HAL_BOARD_SUBTYPE HAL_BOARD_SUBTYPE_LINUX_RPI
+
+define HAL_LINUX_GPIO_RPI_ENABLED 1
