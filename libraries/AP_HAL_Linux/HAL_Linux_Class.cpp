@@ -33,6 +33,7 @@
 #include "RCOutput_AioPRU_PB2.h"
 #include "RCOutput_Bebop.h"
 #include "RCOutput_Disco.h"
+#include "RCOutput_Duff.h"
 #include "RCOutput_Multi.h"
 #include "RCOutput_PCA9685.h"
 #include "RCOutput_PRU.h"
@@ -60,7 +61,8 @@ using namespace Linux;
     CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIGATOR ||  \
     CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_OBAL_V1 || \
     CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_CANZERO || \
-    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_PILOTPI
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_PILOTPI || \
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DUFF
 static UtilRPI utilInstance;
 #else
 static Util utilInstance;
@@ -233,6 +235,8 @@ RCOutput_Multi::RCOutputGroup rcoutSysfsDriver = {2, NEW_NOTHROW RCOutput_Sysfs(
 static RCOutput_Multi rcoutDriver{2, &rcoutPcaDriver, &rcoutSysfsDriver};
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_T3_GEM_O1
 static RCOutput_Sysfs rcoutDriver(0, 0, 7);
+#elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DUFF
+static RCOutput_Duff rcoutDriver;
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_RPI
 static RCOutput_RPI rcoutDriver;
 #else
