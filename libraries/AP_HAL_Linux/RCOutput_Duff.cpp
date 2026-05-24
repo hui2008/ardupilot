@@ -3,7 +3,9 @@
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
 
+#include <cstdarg>
 #include <cmath>
+#include <cstdio>
 #include <stdint.h>
 
 extern const AP_HAL::HAL& hal;
@@ -31,6 +33,15 @@ using namespace Linux;
 static constexpr float PCA9685_INTERNAL_CLOCK = 1.04f * 25000000.0f;
 static constexpr uint16_t PCA9685_FULL_ON = 4096;
 
+static void duff_log(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    fflush(stderr);
+}
+
 RCOutput_Duff::~RCOutput_Duff()
 {
     delete _dev;
@@ -43,15 +54,15 @@ void RCOutput_Duff::init()
     }
 
     if (_dev == nullptr) {
-        hal.console->printf("RCOutput_Duff: failed to open PCA9685 bus=%u addr=0x%02x\n",
-                            unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
+        duff_log("RCOutput_Duff: failed to open PCA9685 bus=%u addr=0x%02x\n",
+                 unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
         return;
     }
 
     _dev->set_retries(2);
 
     if (!_dev->get_semaphore()->take(10)) {
-        hal.console->printf("RCOutput_Duff: failed to lock PCA9685\n");
+        duff_log("RCOutput_Duff: failed to lock PCA9685\n");
         return;
     }
 
@@ -66,7 +77,7 @@ void RCOutput_Duff::init()
     _dev->get_semaphore()->give();
 
     if (!ok) {
-        hal.console->printf("RCOutput_Duff: PCA9685 init failed\n");
+        duff_log("RCOutput_Duff: PCA9685 init failed\n");
         return;
     }
 
@@ -80,15 +91,15 @@ void RCOutput_Duff::init()
     stage_stop(_left);
     stage_stop(_right);
     if (!flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1)) {
-        hal.console->printf("RCOutput_Duff: failed to stop PCA9685 outputs during init\n");
+        duff_log("RCOutput_Duff: failed to stop PCA9685 outputs during init\n");
         return;
     }
     _safety_on = false;
     report_motor(_left, "init");
     report_motor(_right, "init");
 
-    hal.console->printf("RCOutput_Duff: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
-                        unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
+    duff_log("RCOutput_Duff: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
+             unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
 }
 
 void RCOutput_Duff::set_freq(uint32_t chmask, uint16_t freq_hz)
@@ -117,10 +128,10 @@ void RCOutput_Duff::set_freq(uint32_t chmask, uint16_t freq_hz)
 
     if (ok) {
         _freq_hz = PCA9685_INTERNAL_CLOCK / (4096.0f * (prescale + 1));
-        hal.console->printf("RCOutput_Duff: freq requested=%u actual=%u prescale=%u\n",
-                            unsigned(freq_hz), unsigned(_freq_hz), unsigned(prescale));
+        duff_log("RCOutput_Duff: freq requested=%u actual=%u prescale=%u\n",
+                 unsigned(freq_hz), unsigned(_freq_hz), unsigned(prescale));
     } else {
-        hal.console->printf("RCOutput_Duff: failed to set freq=%u\n", unsigned(freq_hz));
+        duff_log("RCOutput_Duff: failed to set freq=%u\n", unsigned(freq_hz));
     }
 }
 
@@ -138,8 +149,8 @@ void RCOutput_Duff::enable_ch(uint8_t ch)
     }
 
     motor->enabled = true;
-    hal.console->printf("RCOutput_Duff: enable %s ch=%u\n",
-                        motor->name, unsigned(ch));
+    duff_log("RCOutput_Duff: enable %s ch=%u\n",
+             motor->name, unsigned(ch));
     if (!_corked) {
         set_motor(*motor, motor->pwm_us);
     }
@@ -153,8 +164,8 @@ void RCOutput_Duff::disable_ch(uint8_t ch)
     }
 
     motor->enabled = false;
-    hal.console->printf("RCOutput_Duff: disable %s ch=%u\n",
-                        motor->name, unsigned(ch));
+    duff_log("RCOutput_Duff: disable %s ch=%u\n",
+             motor->name, unsigned(ch));
     stop_motor(*motor);
 }
 
@@ -164,7 +175,7 @@ bool RCOutput_Duff::force_safety_on()
     stage_stop(_left);
     stage_stop(_right);
     const bool ok = flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
-    hal.console->printf("RCOutput_Duff: safety on %s\n", ok ? "ok" : "failed");
+    duff_log("RCOutput_Duff: safety on %s\n", ok ? "ok" : "failed");
     if (ok) {
         report_motor(_left, "safety");
         report_motor(_right, "safety");
@@ -186,7 +197,7 @@ void RCOutput_Duff::force_safety_off()
     }
     if (any_motor) {
         const bool ok = flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
-        hal.console->printf("RCOutput_Duff: safety off %s\n", ok ? "ok" : "failed");
+        duff_log("RCOutput_Duff: safety off %s\n", ok ? "ok" : "failed");
         if (ok) {
             if (_left.enabled) {
                 report_motor(_left, "safety");
@@ -196,7 +207,7 @@ void RCOutput_Duff::force_safety_off()
             }
         }
     } else {
-        hal.console->printf("RCOutput_Duff: safety off ok, no enabled motors\n");
+        duff_log("RCOutput_Duff: safety off ok, no enabled motors\n");
     }
 }
 
@@ -414,16 +425,16 @@ void RCOutput_Duff::report_motor(Motor &motor, const char *reason)
         duty_pct = (uint32_t(magnitude_us) * 100U) / (DEFAULT_PWM_US - MIN_PWM_US);
     }
 
-    hal.console->printf("RCOutput_Duff: %s %s ch=%u pwm=%u state=%s duty=%u%% en=%u inA=%u inB=%u\n",
-                        reason,
-                        motor.name,
-                        unsigned(motor.output_ch),
-                        unsigned(motor.pwm_us),
-                        state,
-                        unsigned(duty_pct),
-                        unsigned(motor.enable_ch),
-                        unsigned(motor.in_a_ch),
-                        unsigned(motor.in_b_ch));
+    duff_log("RCOutput_Duff: %s %s ch=%u pwm=%u state=%s duty=%u%% en=%u inA=%u inB=%u\n",
+             reason,
+             motor.name,
+             unsigned(motor.output_ch),
+             unsigned(motor.pwm_us),
+             state,
+             unsigned(duty_pct),
+             unsigned(motor.enable_ch),
+             unsigned(motor.in_a_ch),
+             unsigned(motor.in_b_ch));
 
     motor.last_reported_pwm = motor.pwm_us;
 }
