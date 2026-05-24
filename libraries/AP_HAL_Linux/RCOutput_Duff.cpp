@@ -79,7 +79,10 @@ void RCOutput_Duff::init()
 
     stage_stop(_left);
     stage_stop(_right);
-    flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
+    if (!flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1)) {
+        hal.console->printf("RCOutput_Duff: failed to stop PCA9685 outputs during init\n");
+        return;
+    }
     _safety_on = false;
 
     hal.console->printf("RCOutput_Duff: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
@@ -177,13 +180,17 @@ void RCOutput_Duff::write(uint8_t ch, uint16_t period_us)
         return;
     }
 
-    period_us = constrain_uint16(period_us, MIN_PWM_US, MAX_PWM_US);
+    if (period_us != 0) {
+        period_us = constrain_uint16(period_us, MIN_PWM_US, MAX_PWM_US);
+    }
     motor->pwm_us = period_us;
     if (_corked) {
         _pending = true;
         return;
     }
-    set_motor(*motor, period_us);
+    if (!set_motor(*motor, period_us)) {
+        _pending = true;
+    }
 }
 
 uint16_t RCOutput_Duff::read(uint8_t ch)
@@ -205,7 +212,6 @@ void RCOutput_Duff::read(uint16_t *period_us, uint8_t len)
 void RCOutput_Duff::cork()
 {
     _corked = true;
-    _pending = false;
 }
 
 void RCOutput_Duff::push()
@@ -244,8 +250,8 @@ bool RCOutput_Duff::set_motor(Motor &motor, uint16_t pwm_us)
         return false;
     }
     if (_safety_on || !motor.enabled || pwm_us == 0) {
-        stop_motor(motor);
-        return false;
+        stage_stop(motor);
+        return flush_motor(motor);
     }
 
     pwm_us = constrain_uint16(pwm_us, MIN_PWM_US, MAX_PWM_US);
@@ -255,6 +261,11 @@ bool RCOutput_Duff::set_motor(Motor &motor, uint16_t pwm_us)
 
 void RCOutput_Duff::stage_motor(Motor &motor, uint16_t pwm_us)
 {
+    if (pwm_us == 0) {
+        stage_stop(motor);
+        return;
+    }
+
     pwm_us = constrain_uint16(pwm_us, MIN_PWM_US, MAX_PWM_US);
     const int16_t centered = int16_t(pwm_us) - int16_t(DEFAULT_PWM_US);
 
