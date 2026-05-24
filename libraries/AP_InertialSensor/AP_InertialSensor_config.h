@@ -55,6 +55,10 @@
 #define AP_INERTIALSENSOR_ALLOW_NO_SENSORS 0
 #endif
 
+#ifndef AP_INERTIALSENSOR_NONE_BACKEND_ENABLED
+#define AP_INERTIALSENSOR_NONE_BACKEND_ENABLED (CONFIG_HAL_BOARD == HAL_BOARD_ESP32)
+#endif
+
 // support for boards forcing on a third IMU instance in case the
 // first two fail:
 #ifndef AP_INERTIALSENSOR_FORCE_ENABLE_NONISOLATED_INSTANCE
