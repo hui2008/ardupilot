@@ -47,6 +47,7 @@ private:
     static constexpr uint8_t PCA9685_BUS = 1;
     static constexpr uint8_t PCA9685_ADDRESS = 0x40;
     static constexpr uint8_t PCA9685_CHANNEL_COUNT = 16;
+    static constexpr uint8_t PCA9685_USED_CHANNEL_COUNT = 6;
 
     static constexpr uint16_t MIN_PWM_US = 1000;
     static constexpr uint16_t MAX_PWM_US = 2000;
@@ -55,10 +56,12 @@ private:
     static constexpr uint16_t DEFAULT_FREQ_HZ = 1000;
 
     bool write_register(uint8_t reg, uint8_t reg_value);
-    bool write_channel(uint8_t pca_ch, uint16_t ticks);
-    bool write_gpio_channel(uint8_t pca_ch, bool active);
     bool set_motor(Motor &motor, uint16_t pwm_us);
-    bool apply_motor(Motor &motor, uint16_t pwm_us);
+    void stage_motor(Motor &motor, uint16_t pwm_us);
+    void stage_stop(Motor &motor);
+    bool flush_motor(const Motor &motor);
+    bool flush_channel_range(uint8_t first_ch, uint8_t last_ch);
+    static void fill_channel_bytes(uint16_t ticks, uint8_t *data);
     void stop_motor(Motor &motor);
     Motor *find_motor(uint8_t output_ch);
 
@@ -67,6 +70,7 @@ private:
     bool _safety_on = true;
     bool _corked = false;
     bool _pending = false;
+    uint16_t _pca_ticks[PCA9685_USED_CHANNEL_COUNT] {};
 
     // my/py/pca9685_l298n_wiring.md:
     // Motor A: PCA9685 0=ENA, 1=IN1, 2=IN2.

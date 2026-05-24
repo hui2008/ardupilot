@@ -57,7 +57,11 @@ void RCOutput_Duff::init()
 
     const bool ok =
         write_register(PCA9685_RA_ALL_LED_OFF_H, PCA9685_ALL_LED_OFF_H_SHUT) &&
-        write_register(PCA9685_RA_MODE1, PCA9685_MODE1_SLEEP_BIT);
+        write_register(PCA9685_RA_MODE1, PCA9685_MODE1_SLEEP_BIT) &&
+        write_register(PCA9685_RA_ALL_LED_ON_L, 0) &&
+        write_register(PCA9685_RA_ALL_LED_ON_H, 0) &&
+        write_register(PCA9685_RA_ALL_LED_OFF_L, 0) &&
+        write_register(PCA9685_RA_ALL_LED_OFF_H, 0);
 
     _dev->get_semaphore()->give();
 
@@ -70,15 +74,12 @@ void RCOutput_Duff::init()
 
     if (_dev->get_semaphore()->take(10)) {
         write_register(PCA9685_RA_MODE2, PCA9685_MODE2_OUTDRV_BIT);
-        write_register(PCA9685_RA_ALL_LED_ON_L, 0);
-        write_register(PCA9685_RA_ALL_LED_ON_H, 0);
-        write_register(PCA9685_RA_ALL_LED_OFF_L, 0);
-        write_register(PCA9685_RA_ALL_LED_OFF_H, 0);
         _dev->get_semaphore()->give();
     }
 
-    stop_motor(_left);
-    stop_motor(_right);
+    stage_stop(_left);
+    stage_stop(_right);
+    flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
     _safety_on = false;
 
     hal.console->printf("RCOutput_Duff: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
@@ -100,15 +101,18 @@ void RCOutput_Duff::set_freq(uint32_t chmask, uint16_t freq_hz)
         return;
     }
 
-    write_register(PCA9685_RA_ALL_LED_OFF_H, PCA9685_ALL_LED_OFF_H_SHUT);
-    write_register(PCA9685_RA_MODE1, PCA9685_MODE1_SLEEP_BIT);
-    write_register(PCA9685_RA_PRE_SCALE, prescale);
-    write_register(PCA9685_RA_MODE1, PCA9685_MODE1_RESTART_BIT | PCA9685_MODE1_AI_BIT);
-    write_register(PCA9685_RA_ALL_LED_OFF_H, 0);
+    const bool ok =
+        write_register(PCA9685_RA_ALL_LED_OFF_H, PCA9685_ALL_LED_OFF_H_SHUT) &&
+        write_register(PCA9685_RA_MODE1, PCA9685_MODE1_SLEEP_BIT) &&
+        write_register(PCA9685_RA_PRE_SCALE, prescale) &&
+        write_register(PCA9685_RA_MODE1, PCA9685_MODE1_RESTART_BIT | PCA9685_MODE1_AI_BIT) &&
+        write_register(PCA9685_RA_ALL_LED_OFF_H, 0);
 
     _dev->get_semaphore()->give();
 
-    _freq_hz = PCA9685_INTERNAL_CLOCK / (4096.0f * (prescale + 1));
+    if (ok) {
+        _freq_hz = PCA9685_INTERNAL_CLOCK / (4096.0f * (prescale + 1));
+    }
 }
 
 uint16_t RCOutput_Duff::get_freq(uint8_t ch)
@@ -144,19 +148,25 @@ void RCOutput_Duff::disable_ch(uint8_t ch)
 bool RCOutput_Duff::force_safety_on()
 {
     _safety_on = true;
-    stop_motor(_left);
-    stop_motor(_right);
-    return true;
+    stage_stop(_left);
+    stage_stop(_right);
+    return flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
 }
 
 void RCOutput_Duff::force_safety_off()
 {
     _safety_on = false;
+    bool any_motor = false;
     if (_left.enabled) {
-        set_motor(_left, _left.pwm_us);
+        stage_motor(_left, _left.pwm_us);
+        any_motor = true;
     }
     if (_right.enabled) {
-        set_motor(_right, _right.pwm_us);
+        stage_motor(_right, _right.pwm_us);
+        any_motor = true;
+    }
+    if (any_motor) {
+        flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
     }
 }
 
@@ -167,6 +177,7 @@ void RCOutput_Duff::write(uint8_t ch, uint16_t period_us)
         return;
     }
 
+    period_us = constrain_uint16(period_us, MIN_PWM_US, MAX_PWM_US);
     motor->pwm_us = period_us;
     if (_corked) {
         _pending = true;
@@ -178,7 +189,7 @@ void RCOutput_Duff::write(uint8_t ch, uint16_t period_us)
 uint16_t RCOutput_Duff::read(uint8_t ch)
 {
     const Motor *motor = find_motor(ch);
-    return motor != nullptr ? motor->pwm_us : 0;
+    return motor != nullptr ? motor->pwm_us : DEFAULT_PWM_US;
 }
 
 void RCOutput_Duff::read(uint16_t *period_us, uint8_t len)
@@ -203,13 +214,19 @@ void RCOutput_Duff::push()
     if (!_pending) {
         return;
     }
-    _pending = false;
 
+    bool any_motor = false;
     if (_left.enabled) {
-        set_motor(_left, _left.pwm_us);
+        stage_motor(_left, _left.pwm_us);
+        any_motor = true;
     }
     if (_right.enabled) {
-        set_motor(_right, _right.pwm_us);
+        stage_motor(_right, _right.pwm_us);
+        any_motor = true;
+    }
+
+    if (!any_motor || flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1)) {
+        _pending = false;
     }
 }
 
@@ -221,49 +238,29 @@ bool RCOutput_Duff::write_register(uint8_t reg, uint8_t reg_value)
     return _dev->write_register(reg, reg_value);
 }
 
-bool RCOutput_Duff::write_channel(uint8_t pca_ch, uint16_t ticks)
-{
-    if (_dev == nullptr || pca_ch >= PCA9685_CHANNEL_COUNT) {
-        return false;
-    }
-
-    ticks = MIN(ticks, PCA9685_FULL_ON);
-
-    uint8_t data[] {
-        uint8_t(PCA9685_RA_LED0_ON_L + 4U * pca_ch),
-        0,
-        ticks == PCA9685_FULL_ON ? uint8_t(PCA9685_LED_ON_H_ALWAYS_ON_BIT) : uint8_t(0),
-        uint8_t(ticks & 0xFF),
-        ticks == PCA9685_FULL_ON ? uint8_t(0) :
-            (ticks == 0 ? uint8_t(PCA9685_LED_OFF_H_ALWAYS_OFF_BIT) : uint8_t(ticks >> 8)),
-    };
-
-    return _dev->transfer(data, sizeof(data), nullptr, 0);
-}
-
-bool RCOutput_Duff::write_gpio_channel(uint8_t pca_ch, bool active)
-{
-    return write_channel(pca_ch, active ? PCA9685_FULL_ON : 0);
-}
-
 bool RCOutput_Duff::set_motor(Motor &motor, uint16_t pwm_us)
 {
-    if (_dev == nullptr || _safety_on || !motor.enabled || pwm_us == 0) {
+    if (_dev == nullptr) {
+        return false;
+    }
+    if (_safety_on || !motor.enabled || pwm_us == 0) {
         stop_motor(motor);
         return false;
     }
 
     pwm_us = constrain_uint16(pwm_us, MIN_PWM_US, MAX_PWM_US);
-    return apply_motor(motor, pwm_us);
+    stage_motor(motor, pwm_us);
+    return flush_motor(motor);
 }
 
-bool RCOutput_Duff::apply_motor(Motor &motor, uint16_t pwm_us)
+void RCOutput_Duff::stage_motor(Motor &motor, uint16_t pwm_us)
 {
+    pwm_us = constrain_uint16(pwm_us, MIN_PWM_US, MAX_PWM_US);
     const int16_t centered = int16_t(pwm_us) - int16_t(DEFAULT_PWM_US);
 
     if (abs(centered) <= DEADZONE_US) {
-        stop_motor(motor);
-        return true;
+        stage_stop(motor);
+        return;
     }
 
     const bool forward = centered > 0;
@@ -271,19 +268,67 @@ bool RCOutput_Duff::apply_motor(Motor &motor, uint16_t pwm_us)
     const uint16_t duty_ticks = (uint32_t(magnitude_us) * (PCA9685_FULL_ON - 1)) /
                                 (DEFAULT_PWM_US - MIN_PWM_US);
 
+    _pca_ticks[motor.enable_ch] = duty_ticks;
+    _pca_ticks[motor.in_a_ch] = forward ? PCA9685_FULL_ON : 0;
+    _pca_ticks[motor.in_b_ch] = forward ? 0 : PCA9685_FULL_ON;
+}
+
+void RCOutput_Duff::stage_stop(Motor &motor)
+{
+    _pca_ticks[motor.enable_ch] = 0;
+    _pca_ticks[motor.in_a_ch] = 0;
+    _pca_ticks[motor.in_b_ch] = 0;
+}
+
+bool RCOutput_Duff::flush_motor(const Motor &motor)
+{
+    const uint8_t first_ch = MIN(motor.enable_ch, MIN(motor.in_a_ch, motor.in_b_ch));
+    const uint8_t last_ch = MAX(motor.enable_ch, MAX(motor.in_a_ch, motor.in_b_ch));
+    return flush_channel_range(first_ch, last_ch);
+}
+
+bool RCOutput_Duff::flush_channel_range(uint8_t first_ch, uint8_t last_ch)
+{
+    if (_dev == nullptr ||
+        first_ch >= PCA9685_USED_CHANNEL_COUNT ||
+        last_ch >= PCA9685_USED_CHANNEL_COUNT ||
+        first_ch > last_ch) {
+        return false;
+    }
+
+    struct PACKED pca_values {
+        uint8_t reg;
+        uint8_t data[PCA9685_USED_CHANNEL_COUNT * 4];
+    } pca_values {};
+
+    pca_values.reg = PCA9685_RA_LED0_ON_L + 4U * first_ch;
+    for (uint8_t ch = first_ch; ch <= last_ch; ch++) {
+        fill_channel_bytes(_pca_ticks[ch], &pca_values.data[(ch - first_ch) * 4]);
+    }
+
     if (!_dev->get_semaphore()->take(10)) {
         return false;
     }
 
-    const bool ok =
-        write_channel(motor.enable_ch, 0) &&
-        write_gpio_channel(motor.in_a_ch, forward) &&
-        write_gpio_channel(motor.in_b_ch, !forward) &&
-        write_channel(motor.enable_ch, duty_ticks);
-
+    const size_t payload_size = 1U + (last_ch - first_ch + 1U) * 4U;
+    const bool ok = _dev->transfer(reinterpret_cast<uint8_t *>(&pca_values),
+                                   payload_size,
+                                   nullptr,
+                                   0);
     _dev->get_semaphore()->give();
 
     return ok;
+}
+
+void RCOutput_Duff::fill_channel_bytes(uint16_t ticks, uint8_t *data)
+{
+    ticks = MIN(ticks, PCA9685_FULL_ON);
+
+    data[0] = 0;
+    data[1] = ticks == PCA9685_FULL_ON ? PCA9685_LED_ON_H_ALWAYS_ON_BIT : 0;
+    data[2] = ticks & 0xFF;
+    data[3] = ticks == PCA9685_FULL_ON ? 0 :
+        (ticks == 0 ? PCA9685_LED_OFF_H_ALWAYS_OFF_BIT : ticks >> 8);
 }
 
 void RCOutput_Duff::stop_motor(Motor &motor)
@@ -292,15 +337,8 @@ void RCOutput_Duff::stop_motor(Motor &motor)
         return;
     }
 
-    if (!_dev->get_semaphore()->take(10)) {
-        return;
-    }
-
-    write_channel(motor.enable_ch, 0);
-    write_gpio_channel(motor.in_a_ch, false);
-    write_gpio_channel(motor.in_b_ch, false);
-
-    _dev->get_semaphore()->give();
+    stage_stop(motor);
+    flush_motor(motor);
 }
 
 RCOutput_Duff::Motor *RCOutput_Duff::find_motor(uint8_t output_ch)
