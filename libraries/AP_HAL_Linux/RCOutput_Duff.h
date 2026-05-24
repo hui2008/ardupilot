@@ -36,11 +36,13 @@ public:
 
 private:
     struct Motor {
+        const char *name;
         uint8_t output_ch;
         uint8_t enable_ch;
         uint8_t in_a_ch;
         uint8_t in_b_ch;
         uint16_t pwm_us;
+        uint16_t last_reported_pwm;
         bool enabled;
     };
 
@@ -62,6 +64,7 @@ private:
     bool flush_motor(const Motor &motor);
     bool flush_channel_range(uint8_t first_ch, uint8_t last_ch);
     static void fill_channel_bytes(uint16_t ticks, uint8_t *data);
+    void report_motor(Motor &motor, const char *reason);
     void stop_motor(Motor &motor);
     Motor *find_motor(uint8_t output_ch);
 
@@ -75,8 +78,8 @@ private:
     // my/py/pca9685_l298n_wiring.md:
     // Motor A: PCA9685 0=ENA, 1=IN1, 2=IN2.
     // Motor B: PCA9685 5=ENB, 3=IN3, 4=IN4.
-    Motor _left { 0, 0, 1, 2, DEFAULT_PWM_US, false };
-    Motor _right { 2, 5, 3, 4, DEFAULT_PWM_US, false };
+    Motor _left { "left", 0, 0, 1, 2, DEFAULT_PWM_US, 0, false };
+    Motor _right { "right", 2, 5, 3, 4, DEFAULT_PWM_US, 0, false };
 };
 
 } // namespace Linux

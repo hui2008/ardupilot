@@ -84,6 +84,8 @@ void RCOutput_Duff::init()
         return;
     }
     _safety_on = false;
+    report_motor(_left, "init");
+    report_motor(_right, "init");
 
     hal.console->printf("RCOutput_Duff: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
                         unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
@@ -115,6 +117,10 @@ void RCOutput_Duff::set_freq(uint32_t chmask, uint16_t freq_hz)
 
     if (ok) {
         _freq_hz = PCA9685_INTERNAL_CLOCK / (4096.0f * (prescale + 1));
+        hal.console->printf("RCOutput_Duff: freq requested=%u actual=%u prescale=%u\n",
+                            unsigned(freq_hz), unsigned(_freq_hz), unsigned(prescale));
+    } else {
+        hal.console->printf("RCOutput_Duff: failed to set freq=%u\n", unsigned(freq_hz));
     }
 }
 
@@ -132,6 +138,8 @@ void RCOutput_Duff::enable_ch(uint8_t ch)
     }
 
     motor->enabled = true;
+    hal.console->printf("RCOutput_Duff: enable %s ch=%u\n",
+                        motor->name, unsigned(ch));
     if (!_corked) {
         set_motor(*motor, motor->pwm_us);
     }
@@ -145,6 +153,8 @@ void RCOutput_Duff::disable_ch(uint8_t ch)
     }
 
     motor->enabled = false;
+    hal.console->printf("RCOutput_Duff: disable %s ch=%u\n",
+                        motor->name, unsigned(ch));
     stop_motor(*motor);
 }
 
@@ -153,7 +163,13 @@ bool RCOutput_Duff::force_safety_on()
     _safety_on = true;
     stage_stop(_left);
     stage_stop(_right);
-    return flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
+    const bool ok = flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
+    hal.console->printf("RCOutput_Duff: safety on %s\n", ok ? "ok" : "failed");
+    if (ok) {
+        report_motor(_left, "safety");
+        report_motor(_right, "safety");
+    }
+    return ok;
 }
 
 void RCOutput_Duff::force_safety_off()
@@ -169,7 +185,18 @@ void RCOutput_Duff::force_safety_off()
         any_motor = true;
     }
     if (any_motor) {
-        flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
+        const bool ok = flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
+        hal.console->printf("RCOutput_Duff: safety off %s\n", ok ? "ok" : "failed");
+        if (ok) {
+            if (_left.enabled) {
+                report_motor(_left, "safety");
+            }
+            if (_right.enabled) {
+                report_motor(_right, "safety");
+            }
+        }
+    } else {
+        hal.console->printf("RCOutput_Duff: safety off ok, no enabled motors\n");
     }
 }
 
@@ -231,8 +258,19 @@ void RCOutput_Duff::push()
         any_motor = true;
     }
 
-    if (!any_motor || flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1)) {
+    if (!any_motor) {
         _pending = false;
+        return;
+    }
+
+    if (flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1)) {
+        _pending = false;
+        if (_left.enabled) {
+            report_motor(_left, "push");
+        }
+        if (_right.enabled) {
+            report_motor(_right, "push");
+        }
     }
 }
 
@@ -256,7 +294,11 @@ bool RCOutput_Duff::set_motor(Motor &motor, uint16_t pwm_us)
 
     pwm_us = constrain_uint16(pwm_us, MIN_PWM_US, MAX_PWM_US);
     stage_motor(motor, pwm_us);
-    return flush_motor(motor);
+    const bool ok = flush_motor(motor);
+    if (ok) {
+        report_motor(motor, "write");
+    }
+    return ok;
 }
 
 void RCOutput_Duff::stage_motor(Motor &motor, uint16_t pwm_us)
@@ -342,6 +384,50 @@ void RCOutput_Duff::fill_channel_bytes(uint16_t ticks, uint8_t *data)
         (ticks == 0 ? PCA9685_LED_OFF_H_ALWAYS_OFF_BIT : ticks >> 8);
 }
 
+void RCOutput_Duff::report_motor(Motor &motor, const char *reason)
+{
+    if (motor.last_reported_pwm == motor.pwm_us) {
+        return;
+    }
+
+    if (motor.last_reported_pwm != 0 && motor.pwm_us != 0) {
+        const int16_t last_centered = int16_t(motor.last_reported_pwm) - int16_t(DEFAULT_PWM_US);
+        const int16_t current_centered = int16_t(motor.pwm_us) - int16_t(DEFAULT_PWM_US);
+        const int8_t last_state = abs(last_centered) <= DEADZONE_US ? 0 : (last_centered > 0 ? 1 : -1);
+        const int8_t current_state = abs(current_centered) <= DEADZONE_US ? 0 : (current_centered > 0 ? 1 : -1);
+
+        if (last_state == current_state &&
+            abs(int16_t(motor.pwm_us) - int16_t(motor.last_reported_pwm)) < 50) {
+            return;
+        }
+    }
+
+    const int16_t centered = int16_t(motor.pwm_us) - int16_t(DEFAULT_PWM_US);
+    const char *state = "stop";
+    uint8_t duty_pct = 0;
+
+    if (motor.pwm_us == 0) {
+        state = "zero";
+    } else if (abs(centered) > DEADZONE_US) {
+        state = centered > 0 ? "forward" : "reverse";
+        const uint16_t magnitude_us = constrain_uint16(abs(centered), 0, DEFAULT_PWM_US - MIN_PWM_US);
+        duty_pct = (uint32_t(magnitude_us) * 100U) / (DEFAULT_PWM_US - MIN_PWM_US);
+    }
+
+    hal.console->printf("RCOutput_Duff: %s %s ch=%u pwm=%u state=%s duty=%u%% en=%u inA=%u inB=%u\n",
+                        reason,
+                        motor.name,
+                        unsigned(motor.output_ch),
+                        unsigned(motor.pwm_us),
+                        state,
+                        unsigned(duty_pct),
+                        unsigned(motor.enable_ch),
+                        unsigned(motor.in_a_ch),
+                        unsigned(motor.in_b_ch));
+
+    motor.last_reported_pwm = motor.pwm_us;
+}
+
 void RCOutput_Duff::stop_motor(Motor &motor)
 {
     if (_dev == nullptr) {
@@ -349,7 +435,9 @@ void RCOutput_Duff::stop_motor(Motor &motor)
     }
 
     stage_stop(motor);
-    flush_motor(motor);
+    if (flush_motor(motor)) {
+        report_motor(motor, "stop");
+    }
 }
 
 RCOutput_Duff::Motor *RCOutput_Duff::find_motor(uint8_t output_ch)
