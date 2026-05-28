@@ -44,6 +44,7 @@ static void duff_log(const char *fmt, ...)
 
 RCOutput_Duff::~RCOutput_Duff()
 {
+    shutdown_outputs();
     delete _dev;
 }
 
@@ -449,6 +450,34 @@ void RCOutput_Duff::stop_motor(Motor &motor)
     if (flush_motor(motor)) {
         report_motor(motor, "stop");
     }
+}
+
+void RCOutput_Duff::shutdown_outputs()
+{
+    if (_dev == nullptr) {
+        return;
+    }
+
+    _safety_on = true;
+    _corked = false;
+    _pending = false;
+    _left.enabled = false;
+    _right.enabled = false;
+    _left.pwm_us = 0;
+    _right.pwm_us = 0;
+
+    stage_stop(_left);
+    stage_stop(_right);
+    const bool channels_off = flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
+
+    bool all_off = false;
+    if (_dev->get_semaphore()->take(10)) {
+        all_off = write_register(PCA9685_RA_ALL_LED_OFF_H, PCA9685_ALL_LED_OFF_H_SHUT);
+        _dev->get_semaphore()->give();
+    }
+
+    duff_log("RCOutput_Duff: shutdown outputs %s\n",
+             (channels_off && all_off) ? "ok" : "failed");
 }
 
 RCOutput_Duff::Motor *RCOutput_Duff::find_motor(uint8_t output_ch)

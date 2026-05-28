@@ -66,6 +66,7 @@ private:
     static void fill_channel_bytes(uint16_t ticks, uint8_t *data);
     void report_motor(Motor &motor, const char *reason);
     void stop_motor(Motor &motor);
+    void shutdown_outputs();
     Motor *find_motor(uint8_t output_ch);
 
     AP_HAL::I2CDevice *_dev = nullptr;
