@@ -1,6 +1,6 @@
 # Duffy Board Notes
 
-Duffy is a Linux rover board profile for a Raspberry Pi class host driving a
+Duffy is a Linux rover board profile for a Raspberry Pi Zero 2 W driving a
 two-motor skid-steer rover through a PCA9685 PWM controller and an L298N dual
 H-bridge. The board uses `RCOutput_Duffy` for motor output and ArduPilot's
 serial RC protocol path for receiver input.
@@ -28,14 +28,6 @@ is enabled in Linux and is not being used as the Linux console.
 
 ## Runtime Serial Layout
 
-On the observed Duffy Raspberry Pi setup, `/dev/serial0` points to the UART
-mapped to the GPIO header serial pins.
-
-Do not confuse Linux device names with ArduPilot serial port names. Linux
-`/dev/serial0` is an operating-system device path. ArduPilot `SERIAL0` and
-`SERIAL1` are autopilot serial port instances. The Duffy run command below maps
-Linux `/dev/serial0` to ArduPilot `SERIAL1`.
-
 The intended serial role split is:
 
 | ArduPilot port | Duffy use |
@@ -43,10 +35,12 @@ The intended serial role split is:
 | `SERIAL0` | TCP connection to the ground control station |
 | `SERIAL1` | RC input receiver UART |
 
-### Linux UART Preparation
+Do not confuse Linux device names with ArduPilot serial port names. Linux
+`/dev/serial0` is an operating-system device path. ArduPilot `SERIAL0` and
+`SERIAL1` are autopilot serial port instances. The Duffy run command maps Linux
+`/dev/serial0` to ArduPilot `SERIAL1`.
 
-Before starting Rover, make sure Linux exposes the receiver UART and that no
-console service is using it.
+### UART Device Identity
 
 Check which real UART backs `/dev/serial0`:
 
@@ -55,7 +49,22 @@ ls -l /dev/serial0
 readlink -f /dev/serial0
 ```
 
-Enable the Raspberry Pi UART in the boot configuration:
+On the observed Duffy Raspberry Pi Zero 2 W setup:
+
+```text
+/dev/serial0 -> ttyS0
+```
+
+This means the GPIO header serial pins are currently backed by `/dev/ttyS0`,
+the mini-UART.
+
+### Pi Zero 2 W UART Selection
+
+The Raspberry Pi Zero 2 W has onboard Bluetooth. The Bluetooth chip may use the
+PL011 UART internally. In that layout, the GPIO header serial pins are backed
+by the mini-UART (`ttyS0`) instead of the PL011 UART (`ttyAMA0`).
+
+Always enable the Raspberry Pi UART in the boot configuration:
 
 ```text
 enable_uart=1
@@ -65,19 +74,99 @@ On newer Raspberry Pi OS images this is normally in
 `/boot/firmware/config.txt`; on older images it may be in `/boot/config.txt`.
 Reboot after changing it.
 
+To put the more robust PL011 UART on the GPIO header serial pins, either
+disable Bluetooth:
+
+```text
+enable_uart=1
+dtoverlay=disable-bt
+```
+
+or keep Bluetooth enabled and move Bluetooth to the mini-UART:
+
+```text
+enable_uart=1
+dtoverlay=miniuart-bt
+```
+
+If Bluetooth is disabled, also stop the Bluetooth UART service:
+
+```sh
+sudo systemctl disable --now hciuart.service
+```
+
+After reboot, check the serial alias again. When GPIO serial is backed by
+PL011, the expected result is:
+
+```text
+/dev/serial0 -> ttyAMA0
+```
+
+Using the mini-UART can still work for I.Bus at `115200` baud. Using PL011 is
+preferred when Bluetooth is not needed because its clocking is more robust.
+
+### Linux Console Ownership
+
+The receiver UART must not be used as a Linux serial console. A serial console
+means the kernel and login service treat the UART as a terminal for boot logs
+and login text, while Duffy needs the same UART for binary I.Bus receiver
+frames.
+
 Check the kernel command line:
 
 ```sh
 cat /proc/cmdline
 ```
 
-If the receiver UART appears as a console, remove that console assignment from
-the boot command line. Common examples are:
+Observed Duffy Pi Zero 2 W output:
+
+```text
+coherent_pool=1M
+8250.nr_uarts=1
+snd_bcm2835.enable_headphones=0
+cgroup_disable=memory
+snd_bcm2835.enable_hdmi=1
+snd_bcm2835.enable_hdmi=0
+smsc95xx.macaddr=B8:27:EB:01:41:F2
+vc_mem.mem_base=0x1ec00000
+vc_mem.mem_size=0x20000000
+console=ttyS0,115200
+console=tty1
+root=PARTUUID=efeabd0c-02
+rootfstype=ext4
+fsck.repair=yes
+rootwait
+ds=nocloud;i=rpi-imager-1780302854544
+cfg80211.ieee80211_regdom=AU
+```
+
+`/proc/cmdline` is one physical line. It is wrapped above only to make each
+boot argument easier to inspect. For UART ownership, the important entry is:
+
+```text
+console=ttyS0,115200
+```
+
+That tells Linux to use `/dev/ttyS0` as a serial console at `115200` baud. On
+the observed Duffy setup `/dev/serial0 -> ttyS0`, so this is the same UART that
+Rover would use for I.Bus RC input. Remove `console=ttyS0,115200` from
+`cmdline.txt`.
+
+The local display console can remain:
+
+```text
+console=tty1
+```
+
+The other fields are unrelated to RC input. They configure boot memory,
+audio/display options, root filesystem selection, first-boot cloud-init data,
+and WiFi regulatory region.
+
+Other serial console entries to avoid on the receiver UART are:
 
 ```text
 console=serial0,115200
 console=ttyAMA0,115200
-console=ttyS0,115200
 ```
 
 On newer Raspberry Pi OS images the boot command line is normally
@@ -94,6 +183,8 @@ sudo systemctl disable --now serial-getty@ttyS0.service
 
 It is fine if one of those services does not exist. The important condition is
 that the UART used for RC input is not owned by a login console.
+
+### Final UART Checks
 
 Verify that nothing has the UART open before starting Rover:
 
