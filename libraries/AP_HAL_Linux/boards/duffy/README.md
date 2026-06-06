@@ -158,6 +158,9 @@ The local display console can remain:
 console=tty1
 ```
 
+`tty1` is the first Linux virtual console on the local monitor and keyboard
+path. It is not a UART and does not conflict with the receiver serial port.
+
 The other fields are unrelated to RC input. They configure boot memory,
 audio/display options, root filesystem selection, first-boot cloud-init data,
 and WiFi regulatory region.
@@ -434,3 +437,44 @@ Embedding file defaults.parm:libraries/AP_HAL_Linux/boards/duffy/defaults.parm
 
 The current Duffy changes were verified with `./waf configure --board duffy`
 and the `RCInputToRCOutput`, `RCOutput`, and `RCOutput2` example targets.
+
+## Appendix: Raspberry Pi Serial Console
+
+Raspberry Pi OS can use the GPIO header UART as a Linux serial console. This is
+useful for headless debugging before network or HDMI access works.
+
+With a `3.3 V` USB-to-TTL serial adapter, connect:
+
+| USB-to-TTL adapter | Raspberry Pi Zero 2 W |
+|--------------------|-----------------------|
+| `GND` | `GND` |
+| `RX` | `GPIO14 / TXD` |
+| `TX` | `GPIO15 / RXD` |
+
+Do not connect a `5 V` adapter signal to the Pi UART pins, and do not use an
+RS-232 level serial adapter. The Pi GPIO UART is `3.3 V` TTL.
+
+Open the adapter from another computer at `115200 8N1`. For example:
+
+```sh
+screen /dev/ttyUSB0 115200
+```
+
+or:
+
+```sh
+picocom -b 115200 /dev/ttyUSB0
+```
+
+When `cmdline.txt` contains a serial console entry such as:
+
+```text
+console=ttyS0,115200
+```
+
+the serial terminal can show kernel boot messages. If a serial getty service is
+enabled, it can also show a login prompt after boot.
+
+For Duffy runtime, those same GPIO UART pins are used for I.Bus RC input.
+Disable the serial console and getty before connecting the receiver and
+starting Rover with `--serial1 /dev/serial0`.
