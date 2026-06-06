@@ -77,10 +77,10 @@ private:
     uint16_t _pca_ticks[PCA9685_USED_CHANNEL_COUNT] {};
 
     // my/py/pca9685_l298n_wiring.md:
-    // Motor A: PCA9685 0=ENA, 1=IN1, 2=IN2.
-    // Motor B: PCA9685 5=ENB, 3=IN3, 4=IN4.
-    Motor _left { "left", 0, 0, 1, 2, DEFAULT_PWM_US, 0, false };
-    Motor _right { "right", 2, 5, 3, 4, DEFAULT_PWM_US, 0, false };
+    // Motor A: PCA9685 5=ENA, 4=IN1, 3=IN2.
+    // Motor B: PCA9685 0=ENB, 2=IN3, 1=IN4.
+    Motor _left { "left", 0, 5, 4, 3, DEFAULT_PWM_US, 0, false };
+    Motor _right { "right", 2, 0, 2, 1, DEFAULT_PWM_US, 0, false };
 };
 
 } // namespace Linux

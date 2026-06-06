@@ -101,6 +101,13 @@ void RCOutput_Duff::init()
 
     duff_log("RCOutput_Duff: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
              unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
+    duff_log("RCOutput_Duff: wiring left en=%u in1=%u in2=%u right en=%u in3=%u in4=%u\n",
+             unsigned(_left.enable_ch),
+             unsigned(_left.in_a_ch),
+             unsigned(_left.in_b_ch),
+             unsigned(_right.enable_ch),
+             unsigned(_right.in_a_ch),
+             unsigned(_right.in_b_ch));
 }
 
 void RCOutput_Duff::set_freq(uint32_t chmask, uint16_t freq_hz)
