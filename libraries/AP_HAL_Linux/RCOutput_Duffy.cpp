@@ -1,4 +1,4 @@
-#include "RCOutput_Duff.h"
+#include "RCOutput_Duffy.h"
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
@@ -33,7 +33,7 @@ using namespace Linux;
 static constexpr float PCA9685_INTERNAL_CLOCK = 1.04f * 25000000.0f;
 static constexpr uint16_t PCA9685_FULL_ON = 4096;
 
-static void duff_log(const char *fmt, ...)
+static void duffy_log(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -42,20 +42,20 @@ static void duff_log(const char *fmt, ...)
     fflush(stderr);
 }
 
-RCOutput_Duff::~RCOutput_Duff()
+RCOutput_Duffy::~RCOutput_Duffy()
 {
     shutdown_outputs();
     delete _dev;
 }
 
-void RCOutput_Duff::init()
+void RCOutput_Duffy::init()
 {
     if (_dev == nullptr) {
         _dev = hal.i2c_mgr->get_device_ptr(PCA9685_BUS, PCA9685_ADDRESS);
     }
 
     if (_dev == nullptr) {
-        duff_log("RCOutput_Duff: failed to open PCA9685 bus=%u addr=0x%02x\n",
+        duffy_log("RCOutput_Duffy: failed to open PCA9685 bus=%u addr=0x%02x\n",
                  unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
         return;
     }
@@ -63,7 +63,7 @@ void RCOutput_Duff::init()
     _dev->set_retries(2);
 
     if (!_dev->get_semaphore()->take(10)) {
-        duff_log("RCOutput_Duff: failed to lock PCA9685\n");
+        duffy_log("RCOutput_Duffy: failed to lock PCA9685\n");
         return;
     }
 
@@ -78,7 +78,7 @@ void RCOutput_Duff::init()
     _dev->get_semaphore()->give();
 
     if (!ok) {
-        duff_log("RCOutput_Duff: PCA9685 init failed\n");
+        duffy_log("RCOutput_Duffy: PCA9685 init failed\n");
         return;
     }
 
@@ -92,16 +92,16 @@ void RCOutput_Duff::init()
     stage_stop(_left);
     stage_stop(_right);
     if (!flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1)) {
-        duff_log("RCOutput_Duff: failed to stop PCA9685 outputs during init\n");
+        duffy_log("RCOutput_Duffy: failed to stop PCA9685 outputs during init\n");
         return;
     }
     _safety_on = false;
     report_motor(_left, "init");
     report_motor(_right, "init");
 
-    duff_log("RCOutput_Duff: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
+    duffy_log("RCOutput_Duffy: PCA9685 L298N skid output ready on bus=%u addr=0x%02x\n",
              unsigned(PCA9685_BUS), unsigned(PCA9685_ADDRESS));
-    duff_log("RCOutput_Duff: wiring left en=%u in1=%u in2=%u right en=%u in3=%u in4=%u\n",
+    duffy_log("RCOutput_Duffy: wiring left en=%u in1=%u in2=%u right en=%u in3=%u in4=%u\n",
              unsigned(_left.enable_ch),
              unsigned(_left.in_a_ch),
              unsigned(_left.in_b_ch),
@@ -110,7 +110,7 @@ void RCOutput_Duff::init()
              unsigned(_right.in_b_ch));
 }
 
-void RCOutput_Duff::set_freq(uint32_t chmask, uint16_t freq_hz)
+void RCOutput_Duffy::set_freq(uint32_t chmask, uint16_t freq_hz)
 {
     (void)chmask;
 
@@ -136,20 +136,20 @@ void RCOutput_Duff::set_freq(uint32_t chmask, uint16_t freq_hz)
 
     if (ok) {
         _freq_hz = PCA9685_INTERNAL_CLOCK / (4096.0f * (prescale + 1));
-        duff_log("RCOutput_Duff: freq requested=%u actual=%u prescale=%u\n",
+        duffy_log("RCOutput_Duffy: freq requested=%u actual=%u prescale=%u\n",
                  unsigned(freq_hz), unsigned(_freq_hz), unsigned(prescale));
     } else {
-        duff_log("RCOutput_Duff: failed to set freq=%u\n", unsigned(freq_hz));
+        duffy_log("RCOutput_Duffy: failed to set freq=%u\n", unsigned(freq_hz));
     }
 }
 
-uint16_t RCOutput_Duff::get_freq(uint8_t ch)
+uint16_t RCOutput_Duffy::get_freq(uint8_t ch)
 {
     (void)ch;
     return _freq_hz;
 }
 
-void RCOutput_Duff::enable_ch(uint8_t ch)
+void RCOutput_Duffy::enable_ch(uint8_t ch)
 {
     Motor *motor = find_motor(ch);
     if (motor == nullptr) {
@@ -157,14 +157,14 @@ void RCOutput_Duff::enable_ch(uint8_t ch)
     }
 
     motor->enabled = true;
-    duff_log("RCOutput_Duff: enable %s ch=%u\n",
+    duffy_log("RCOutput_Duffy: enable %s ch=%u\n",
              motor->name, unsigned(ch));
     if (!_corked) {
         set_motor(*motor, motor->pwm_us);
     }
 }
 
-void RCOutput_Duff::disable_ch(uint8_t ch)
+void RCOutput_Duffy::disable_ch(uint8_t ch)
 {
     Motor *motor = find_motor(ch);
     if (motor == nullptr) {
@@ -172,18 +172,18 @@ void RCOutput_Duff::disable_ch(uint8_t ch)
     }
 
     motor->enabled = false;
-    duff_log("RCOutput_Duff: disable %s ch=%u\n",
+    duffy_log("RCOutput_Duffy: disable %s ch=%u\n",
              motor->name, unsigned(ch));
     stop_motor(*motor);
 }
 
-bool RCOutput_Duff::force_safety_on()
+bool RCOutput_Duffy::force_safety_on()
 {
     _safety_on = true;
     stage_stop(_left);
     stage_stop(_right);
     const bool ok = flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
-    duff_log("RCOutput_Duff: safety on %s\n", ok ? "ok" : "failed");
+    duffy_log("RCOutput_Duffy: safety on %s\n", ok ? "ok" : "failed");
     if (ok) {
         report_motor(_left, "safety");
         report_motor(_right, "safety");
@@ -191,7 +191,7 @@ bool RCOutput_Duff::force_safety_on()
     return ok;
 }
 
-void RCOutput_Duff::force_safety_off()
+void RCOutput_Duffy::force_safety_off()
 {
     _safety_on = false;
     bool any_motor = false;
@@ -205,7 +205,7 @@ void RCOutput_Duff::force_safety_off()
     }
     if (any_motor) {
         const bool ok = flush_channel_range(0, PCA9685_USED_CHANNEL_COUNT - 1);
-        duff_log("RCOutput_Duff: safety off %s\n", ok ? "ok" : "failed");
+        duffy_log("RCOutput_Duffy: safety off %s\n", ok ? "ok" : "failed");
         if (ok) {
             if (_left.enabled) {
                 report_motor(_left, "safety");
@@ -215,11 +215,11 @@ void RCOutput_Duff::force_safety_off()
             }
         }
     } else {
-        duff_log("RCOutput_Duff: safety off ok, no enabled motors\n");
+        duffy_log("RCOutput_Duffy: safety off ok, no enabled motors\n");
     }
 }
 
-void RCOutput_Duff::write(uint8_t ch, uint16_t period_us)
+void RCOutput_Duffy::write(uint8_t ch, uint16_t period_us)
 {
     Motor *motor = find_motor(ch);
     if (motor == nullptr) {
@@ -239,13 +239,13 @@ void RCOutput_Duff::write(uint8_t ch, uint16_t period_us)
     }
 }
 
-uint16_t RCOutput_Duff::read(uint8_t ch)
+uint16_t RCOutput_Duffy::read(uint8_t ch)
 {
     const Motor *motor = find_motor(ch);
     return motor != nullptr ? motor->pwm_us : DEFAULT_PWM_US;
 }
 
-void RCOutput_Duff::read(uint16_t *period_us, uint8_t len)
+void RCOutput_Duffy::read(uint16_t *period_us, uint8_t len)
 {
     if (period_us == nullptr) {
         return;
@@ -255,12 +255,12 @@ void RCOutput_Duff::read(uint16_t *period_us, uint8_t len)
     }
 }
 
-void RCOutput_Duff::cork()
+void RCOutput_Duffy::cork()
 {
     _corked = true;
 }
 
-void RCOutput_Duff::push()
+void RCOutput_Duffy::push()
 {
     _corked = false;
     if (!_pending) {
@@ -293,7 +293,7 @@ void RCOutput_Duff::push()
     }
 }
 
-bool RCOutput_Duff::write_register(uint8_t reg, uint8_t reg_value)
+bool RCOutput_Duffy::write_register(uint8_t reg, uint8_t reg_value)
 {
     if (_dev == nullptr) {
         return false;
@@ -301,7 +301,7 @@ bool RCOutput_Duff::write_register(uint8_t reg, uint8_t reg_value)
     return _dev->write_register(reg, reg_value);
 }
 
-bool RCOutput_Duff::set_motor(Motor &motor, uint16_t pwm_us)
+bool RCOutput_Duffy::set_motor(Motor &motor, uint16_t pwm_us)
 {
     if (_dev == nullptr) {
         return false;
@@ -320,7 +320,7 @@ bool RCOutput_Duff::set_motor(Motor &motor, uint16_t pwm_us)
     return ok;
 }
 
-void RCOutput_Duff::stage_motor(Motor &motor, uint16_t pwm_us)
+void RCOutput_Duffy::stage_motor(Motor &motor, uint16_t pwm_us)
 {
     if (pwm_us == 0) {
         stage_stop(motor);
@@ -345,21 +345,21 @@ void RCOutput_Duff::stage_motor(Motor &motor, uint16_t pwm_us)
     _pca_ticks[motor.in_b_ch] = forward ? 0 : PCA9685_FULL_ON;
 }
 
-void RCOutput_Duff::stage_stop(Motor &motor)
+void RCOutput_Duffy::stage_stop(Motor &motor)
 {
     _pca_ticks[motor.enable_ch] = 0;
     _pca_ticks[motor.in_a_ch] = 0;
     _pca_ticks[motor.in_b_ch] = 0;
 }
 
-bool RCOutput_Duff::flush_motor(const Motor &motor)
+bool RCOutput_Duffy::flush_motor(const Motor &motor)
 {
     const uint8_t first_ch = MIN(motor.enable_ch, MIN(motor.in_a_ch, motor.in_b_ch));
     const uint8_t last_ch = MAX(motor.enable_ch, MAX(motor.in_a_ch, motor.in_b_ch));
     return flush_channel_range(first_ch, last_ch);
 }
 
-bool RCOutput_Duff::flush_channel_range(uint8_t first_ch, uint8_t last_ch)
+bool RCOutput_Duffy::flush_channel_range(uint8_t first_ch, uint8_t last_ch)
 {
     if (_dev == nullptr ||
         first_ch >= PCA9685_USED_CHANNEL_COUNT ||
@@ -392,7 +392,7 @@ bool RCOutput_Duff::flush_channel_range(uint8_t first_ch, uint8_t last_ch)
     return ok;
 }
 
-void RCOutput_Duff::fill_channel_bytes(uint16_t ticks, uint8_t *data)
+void RCOutput_Duffy::fill_channel_bytes(uint16_t ticks, uint8_t *data)
 {
     ticks = MIN(ticks, PCA9685_FULL_ON);
 
@@ -403,7 +403,7 @@ void RCOutput_Duff::fill_channel_bytes(uint16_t ticks, uint8_t *data)
         (ticks == 0 ? PCA9685_LED_OFF_H_ALWAYS_OFF_BIT : ticks >> 8);
 }
 
-void RCOutput_Duff::report_motor(Motor &motor, const char *reason)
+void RCOutput_Duffy::report_motor(Motor &motor, const char *reason)
 {
     if (motor.last_reported_pwm == motor.pwm_us) {
         return;
@@ -433,7 +433,7 @@ void RCOutput_Duff::report_motor(Motor &motor, const char *reason)
         duty_pct = (uint32_t(magnitude_us) * 100U) / (DEFAULT_PWM_US - MIN_PWM_US);
     }
 
-    duff_log("RCOutput_Duff: %s %s ch=%u pwm=%u state=%s duty=%u%% en=%u inA=%u inB=%u\n",
+    duffy_log("RCOutput_Duffy: %s %s ch=%u pwm=%u state=%s duty=%u%% en=%u inA=%u inB=%u\n",
              reason,
              motor.name,
              unsigned(motor.output_ch),
@@ -447,7 +447,7 @@ void RCOutput_Duff::report_motor(Motor &motor, const char *reason)
     motor.last_reported_pwm = motor.pwm_us;
 }
 
-void RCOutput_Duff::stop_motor(Motor &motor)
+void RCOutput_Duffy::stop_motor(Motor &motor)
 {
     if (_dev == nullptr) {
         return;
@@ -459,7 +459,7 @@ void RCOutput_Duff::stop_motor(Motor &motor)
     }
 }
 
-void RCOutput_Duff::shutdown_outputs()
+void RCOutput_Duffy::shutdown_outputs()
 {
     if (_dev == nullptr) {
         return;
@@ -483,11 +483,11 @@ void RCOutput_Duff::shutdown_outputs()
         _dev->get_semaphore()->give();
     }
 
-    duff_log("RCOutput_Duff: shutdown outputs %s\n",
+    duffy_log("RCOutput_Duffy: shutdown outputs %s\n",
              (channels_off && all_off) ? "ok" : "failed");
 }
 
-RCOutput_Duff::Motor *RCOutput_Duff::find_motor(uint8_t output_ch)
+RCOutput_Duffy::Motor *RCOutput_Duffy::find_motor(uint8_t output_ch)
 {
     if (output_ch == _left.output_ch) {
         return &_left;

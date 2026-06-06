@@ -6,20 +6,20 @@
 namespace Linux {
 
 /*
-  Duff drives a two-motor skid-steer rover through a PCA9685 connected to an
+  Duffy drives a two-motor skid-steer rover through a PCA9685 connected to an
   L298N dual H-bridge.
 
   Rover should map:
     SERVO1_FUNCTION = 73  (ThrottleLeft)
     SERVO3_FUNCTION = 74  (ThrottleRight)
 
-  RCOutput_Duff receives the final zero-based HAL channel number and PWM pulse
+  RCOutput_Duffy receives the final zero-based HAL channel number and PWM pulse
   width from SRV_Channel::output_ch(). Channel 0 controls the left motor and
   channel 2 controls the right motor.
  */
-class RCOutput_Duff : public AP_HAL::RCOutput {
+class RCOutput_Duffy : public AP_HAL::RCOutput {
 public:
-    ~RCOutput_Duff();
+    ~RCOutput_Duffy();
 
     void init() override;
     void set_freq(uint32_t chmask, uint16_t freq_hz) override;
