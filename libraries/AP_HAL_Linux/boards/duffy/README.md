@@ -5,6 +5,14 @@ two-motor skid-steer rover through a PCA9685 PWM controller and an L298N dual
 H-bridge. The board uses `RCOutput_Duffy` for motor output and ArduPilot's
 serial RC protocol path for receiver input.
 
+Bring-up order:
+
+1. Verify PCA9685/L298N motor wiring.
+2. Verify which Linux UART backs `/dev/serial0`.
+3. Remove Linux serial console ownership from the receiver UART.
+4. Confirm Linux can see I.Bus bytes from the receiver.
+5. Start Rover with `SERIAL0` on TCP and `SERIAL1` on `/dev/serial0`.
+
 ## Hardware
 
 `RCOutput_Duffy` opens PCA9685 I2C bus `1`, address `0x40`. The PCA9685 output
@@ -21,10 +29,10 @@ The L298N wiring expected by the driver is:
 | Right | `2` | `IN3` | direction A |
 | Right | `1` | `IN4` | direction B |
 
-For I.Bus RC input, connect the receiver signal to the UART RX used by
-`SERIAL1`. I.Bus uses normal `115200` baud serial byte input and does not
-require signal inversion on a normal UART RX pin. Make sure the selected UART
-is enabled in Linux and is not being used as the Linux console.
+For I.Bus RC input, connect the receiver signal output to the Raspberry Pi UART
+RX pin used by `SERIAL1`, and share ground between the receiver and Pi. I.Bus
+uses normal `115200` baud serial byte input and does not require signal
+inversion on a normal UART RX pin.
 
 ## Runtime Serial Layout
 
@@ -174,7 +182,7 @@ console=ttyAMA0,115200
 
 On newer Raspberry Pi OS images the boot command line is normally
 `/boot/firmware/cmdline.txt`; on older images it may be `/boot/cmdline.txt`.
-Keep `cmdline.txt` as a single line.
+Keep `cmdline.txt` as a single line. Reboot after changing it.
 
 Disable any serial getty service for the receiver UART:
 
@@ -188,6 +196,15 @@ It is fine if one of those services does not exist. The important condition is
 that the UART used for RC input is not owned by a login console.
 
 ### Final UART Checks
+
+After reboot, verify that the serial console was removed:
+
+```sh
+cat /proc/cmdline
+```
+
+There should be no `console=ttyS0,115200`, `console=serial0,115200`, or
+`console=ttyAMA0,115200` entry for the receiver UART.
 
 Verify that nothing has the UART open before starting Rover:
 
