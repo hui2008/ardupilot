@@ -263,7 +263,7 @@ FRAME_CLASS 1
 AHRS_EKF_TYPE 10
 COMPASS_ENABLE 0
 GPS_TYPE 0
-ARMING_CHECK 0
+ARMING_SKIPCHK -1
 FS_THR_ENABLE 0
 ```
 
@@ -271,22 +271,63 @@ The RC input defaults are:
 
 ```text
 SERIAL1_PROTOCOL 23
-RC_PROTOCOLS 1
+SERIAL1_BAUD 115
+RC_PROTOCOLS 4
+RC_OPTIONS 34
+RCMAP_ROLL 1
+RCMAP_PITCH 2
+RCMAP_THROTTLE 3
+RCMAP_YAW 4
 MODE_CH 5
 MODE1 0
 MODE6 4
 ```
 
-`SERIAL1_PROTOCOL=23` configures `SERIAL1` as RC input. `RC_PROTOCOLS=1` leaves
-all RC protocols enabled for auto-detection, including I.Bus. To restrict
-detection to I.Bus only after bring-up, use:
+`SERIAL1_PROTOCOL=23` configures `SERIAL1` as RC input, and
+`SERIAL1_BAUD=115` selects `115200` baud for I.Bus. `RC_PROTOCOLS=4` restricts
+RC protocol detection to I.Bus. `RC_OPTIONS=34` keeps the default neutral
+throttle arming check bit and adds the "ignore MAVLink overrides" bit. This
+prevents a ground station virtual joystick from masking the physical receiver
+during bench bring-up.
+
+The `RCMAP_*` values match a Mode 2 FlySky IA6B-style channel order:
+
+| Function | RC input channel |
+|----------|------------------|
+| Roll / steering | `1` |
+| Pitch | `2` |
+| Throttle | `3` |
+| Yaw | `4` |
+
+For Rover, the important inputs are usually steering on channel `1`, throttle
+on channel `3`, and mode selection on channel `5`.
+
+To temporarily allow all receiver protocol decoders during bring-up, use:
 
 ```text
-RC_PROTOCOLS 4
+RC_PROTOCOLS 1
 ```
 
 `RC_PROTOCOLS` is a bitmask. Bit `2` is I.Bus, so I.Bus-only is `1 << 2`,
-which is `4`.
+which is `4`. Value `1` enables all protocols for auto-detection.
+
+### Physical RC vs GCS Joystick
+
+For a vehicle with a real RC receiver, common practice is to keep the physical
+transmitter as the primary manual control and takeover path. The ground station
+is normally used for telemetry, parameter changes, mode changes, missions, and
+monitoring, not for silently replacing stick inputs.
+
+Duffy defaults to `RC_OPTIONS=34`, which keeps the default throttle arming check
+and ignores MAVLink RC overrides. This prevents a ground station virtual
+joystick from pinning or replacing physical receiver channels. MAVLink mission,
+arming, mode-change, and guided commands are separate from RC overrides and are
+not disabled by this setting.
+
+Only enable MAVLink RC overrides or a ground station joystick intentionally, for
+example on a bench rover with no physical receiver or when testing companion
+computer control. In that case, configure the control-link loss behavior and
+failsafes for the MAVLink control source.
 
 At compile time, Duffy is included in the Linux `RCInput_RCProtocol` path with
 guards such as:
@@ -368,6 +409,10 @@ With Rover running, watch receiver input in a ground station:
 - `RCIN.C1` through `RCIN.C4` should be near `1000..2000 us`.
 - `RCIN.C5` should select mode because Duffy defaults set `MODE_CH 5`.
 - No input for longer than `RC_FS_TIMEOUT` should be treated as RC loss.
+- If the direct I.Bus decoder shows moving channels but `RC_CHANNELS` has some
+  channels stuck near `1500`, check for ground station virtual joystick or
+  `RC_CHANNELS_OVERRIDE` messages. Duffy defaults set `RC_OPTIONS=34` to ignore
+  MAVLink RC overrides during physical receiver testing.
 
 For direct UART debugging on the Raspberry Pi, stop Rover first and check that
 Linux is receiving bytes before debugging ArduPilot. Run this direct
@@ -406,8 +451,9 @@ ArduPilot-side debug points:
   `SBUS FD` and `115200 FD`; for Duffy these are normally `-1` because the UART
   comes from `SERIAL1_PROTOCOL=23`. The `SBUS FD` label does not mean Duffy is
   using S.Bus.
-- `RCInput_RCProtocol::_timer_tick()` returns early when there is no direct file
-  descriptor and `AP::RC().has_uart()` is false.
+- `RCInput_RCProtocol::_timer_tick()` reads direct file descriptors when they
+  exist. For Duffy, it updates the serial-manager RC UART added by
+  `SERIAL1_PROTOCOL=23`.
 - `AP::RC().new_input()` becoming true means the protocol decoder accepted a
   receiver frame and updated channel values.
 

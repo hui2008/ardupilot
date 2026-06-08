@@ -38,8 +38,8 @@
     CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO2 || \
     CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_EDGE || \
     CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_PILOTPI || \
-    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DUFFY || \
-    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_T3_GEM_O1
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_T3_GEM_O1 || \
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DUFFY
 
 extern const AP_HAL::HAL& hal;
 
@@ -141,10 +141,8 @@ void RCInput_RCProtocol::init()
 void RCInput_RCProtocol::_timer_tick(void)
 {
     uint8_t b[80];
-    bool have_input_source = false;
 
     if (fd_inverted != -1) {
-        have_input_source = true;
         ssize_t n = ::read(fd_inverted, &b[0], sizeof(b));
         if (n > 0) {
             for (uint8_t i=0; i<n; i++) {
@@ -153,18 +151,12 @@ void RCInput_RCProtocol::_timer_tick(void)
         }
     }
     if (fd_115200 != -1) {
-        have_input_source = true;
         ssize_t n = ::read(fd_115200, &b[0], sizeof(b));
         if (n > 0 && !inverted_is_115200) {
             for (uint8_t i=0; i<n; i++) {
                 AP::RC().process_byte(b[i], 115200);
             }
         }
-    }
-
-    have_input_source |= AP::RC().has_uart();
-    if (!have_input_source) {
-        return;
     }
 
     if (AP::RC().new_input()) {
