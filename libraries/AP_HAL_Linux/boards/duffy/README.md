@@ -256,16 +256,23 @@ libraries/AP_HAL_Linux/boards/duffy/defaults.parm
 ```
 
 The Duffy defaults configure a rover bring-up profile without GPS, compass,
-barometer, or a real IMU:
+or compass. The board is expected to use the real MPU6500 IMU configured in
+`libraries/AP_HAL_Linux/hwdef/duffy/hwdef.dat`; accelerometer and gyro
+calibration should be saved into the runtime storage file after the first
+real-IMU boot:
 
 ```text
 FRAME_CLASS 1
-AHRS_EKF_TYPE 10
+AHRS_EKF_TYPE 3
 COMPASS_ENABLE 0
 GPS_TYPE 0
 ARMING_SKIPCHK -1
 FS_THR_ENABLE 0
 ```
+
+Do not seed `INS_GYR_ID`, `INS_ACC_ID`, `INS_ACCOFFS_*`, or `INS_ACCSCAL_*`
+from defaults for the real IMU setup. Those values must come from ArduPilot's
+detected sensor IDs and normal sensor calibration flow.
 
 The RC input defaults are:
 
