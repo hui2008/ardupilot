@@ -255,8 +255,8 @@ Linux board-specific default parameters are stored in:
 libraries/AP_HAL_Linux/boards/duffy/defaults.parm
 ```
 
-The Duffy defaults configure a rover bring-up profile without GPS, compass,
-or compass. The board is expected to use the real MPU6500 IMU configured in
+The Duffy defaults configure a rover bring-up profile without GPS or compass.
+The board is expected to use the real MPU6500 IMU configured in
 `libraries/AP_HAL_Linux/hwdef/duffy/hwdef.dat`; accelerometer and gyro
 calibration should be saved into the runtime storage file after the first
 real-IMU boot:
@@ -273,6 +273,45 @@ FS_THR_ENABLE 0
 Do not seed `INS_GYR_ID`, `INS_ACC_ID`, `INS_ACCOFFS_*`, or `INS_ACCSCAL_*`
 from defaults for the real IMU setup. Those values must come from ArduPilot's
 detected sensor IDs and normal sensor calibration flow.
+
+The defaults are embedded into the Rover binary as ROMFS data and loaded as
+default overrides:
+
+```text
+Embedding file defaults.parm:libraries/AP_HAL_Linux/boards/duffy/defaults.parm
+```
+
+They are defaults, not forced parameter writes. ArduPilot applies them when a
+parameter is not already configured in storage, but it does not automatically
+save them to the `.stg` parameter storage file. This protects user-tuned
+parameters from being overwritten on every boot.
+
+On Linux, persistent parameter storage is a binary `.stg` file named after the
+vehicle target. Depending on launch options and binary name, Duffy Rover may
+use a file such as:
+
+```text
+ardurover.stg
+Rover.stg
+```
+
+If `ardurover` is launched with `--storage-directory /some/path`, the storage
+file is in that directory. Otherwise it is placed under the board's default
+Linux storage directory or the working/state directory selected by the HAL.
+Use a fresh storage directory when switching from the older no-IMU MVP build to
+the real MPU6500 build so stale synthetic sensor IDs do not remain in storage.
+
+To locate storage on the target:
+
+```sh
+find . /tmp /var /home -name ardurover.stg -o -name Rover.stg 2>/dev/null
+```
+
+After the first real-IMU boot, run accelerometer calibration from the ground
+station, reboot without changing the storage directory, and verify any pre-arm
+calibration warning is gone. If calibration warnings return, check that the
+same `.stg` file is reused and that its timestamp or content changes when
+calibration parameters are saved.
 
 The RC input defaults are:
 
@@ -391,9 +430,46 @@ PWM values are centered on `1500 us`:
 | near `1500 us` | stop |
 | above `1500 us` | forward |
 | below `1500 us` | reverse |
+| `0 us` | hard stop / disabled output state |
 
 `RCOutput_Duffy::write()` constrains non-zero output to `1000..2000 us`. The
 distance from `1500 us` determines the PCA9685 enable-channel duty cycle.
+Zero is preserved as a stop command instead of being clamped to `1000 us`;
+clamping zero would command full reverse during safety or shutdown paths.
+
+The backend initializes the PCA9685 into a stopped state before enabling output,
+uses auto-increment register writes for contiguous channel updates, tracks
+staged channel ticks before flushing to hardware, and preserves pending output
+writes across cork/push cycles until a flush succeeds. Safety on/off explicitly
+stages and flushes both motors stopped or restored.
+
+### Four-Motor Rovers
+
+ArduPilot Rover can support four physical motors while still using the normal
+skid-steer control model:
+
+```text
+Left front + left rear   = ThrottleLeft
+Right front + right rear = ThrottleRight
+```
+
+Duffy's current PCA9685/L298N backend implements two logical motor outputs:
+
+```text
+SERVO1_FUNCTION = 73  # ThrottleLeft
+SERVO3_FUNCTION = 74  # ThrottleRight
+```
+
+No Duffy code change is needed if the two left motors are electrically paired
+and the two right motors are electrically paired behind suitable motor drivers.
+A code change is needed only if Duffy should drive four independent H-bridge
+channels from the PCA9685. In that case, duplicate the left command to
+left-front/left-rear channels and the right command to right-front/right-rear
+channels, or implement a more advanced per-wheel control model.
+
+The L298N is current-limited and inefficient, so it is usually a poor choice
+for four motors unless the motors are very small. For a four-motor rover, prefer
+two stronger dual H-bridge drivers or four separate motor-driver channels.
 
 ## RC Input Testing
 
@@ -475,6 +551,19 @@ RC input is usually either a dedicated `RCIN` receiver pad or a UART whose
 `RCOutput_Duffy::write()` updates staged PCA9685 channel values and flushes the
 corresponding channels over I2C. It does not generate PWM timing in software.
 The PCA9685 is the timing engine.
+
+Duffy logs low-level RC output bring-up messages to `stderr` through the local
+`duffy_log()` helper. This keeps early hardware diagnostics separate from
+stdout, which may be used by `SERIAL0` for MAVLink. The messages include
+PCA9685 open/init failures, frequency configuration, backend ready status,
+channel enable/disable, safety on/off, and motor state transitions. Motor state
+messages are rate-limited by state change or significant PWM delta.
+
+Operator-facing runtime status should normally use `GCS_SEND_TEXT(...)` or
+`gcs().send_text(...)` so it appears as MAVLink `STATUSTEXT`. Persistent
+post-run records should use `AP_Logger`. The `stderr` helper should remain for
+early board bring-up and failures that occur before normal GCS status text is
+usable.
 
 For reference, the normal ArduPilot RCOutput pattern is:
 
